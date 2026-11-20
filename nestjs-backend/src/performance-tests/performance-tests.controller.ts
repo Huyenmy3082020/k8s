@@ -9,6 +9,8 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  DefaultValuePipe,
+  ParseIntPipe,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
@@ -77,6 +79,33 @@ export class PerformanceTestsController {
   @Get(':id/errors')
   getErrors(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.getErrors(id);
+  }
+
+  /**
+   * GET /performance-tests/:id/logs?status=&page=&limit=
+   * Per-request log rows (what each request saw, lock wait, outcome).
+   */
+  @Get(':id/logs')
+  getLogs(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('status') status?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(200), ParseIntPipe) limit = 200,
+  ) {
+    return this.service.getRequestLogs(id, {
+      status: status || undefined,
+      page: Math.max(1, page),
+      limit: Math.min(Math.max(1, limit), 5000),
+    });
+  }
+
+  /**
+   * GET /performance-tests/:id/analysis
+   * Aggregates by outcome + stock values read by more than one successful request.
+   */
+  @Get(':id/analysis')
+  getAnalysis(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.getRequestLogAnalysis(id);
   }
 
   /**

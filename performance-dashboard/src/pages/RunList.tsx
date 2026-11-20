@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { listTests, type TestRun, type TestStatus } from '../api.ts'
+import { VerdictBadge } from '../components/VerdictBadge.tsx'
 import { StatusBadge } from '../components/StatusBadge.tsx'
 
 interface Props {
@@ -111,7 +112,8 @@ export function RunList({ onSelect, onCompare }: Props) {
                 <tr className="text-xs text-slate-400 uppercase tracking-wide">
                   <th className="px-3 py-3 text-left w-8"></th>
                   <th className="px-3 py-3 text-left">ID</th>
-                  <th className="px-3 py-3 text-left">Type</th>
+                  <th className="px-3 py-3 text-left">Strategy</th>
+                  <th className="px-3 py-3 text-left">Verdict</th>
                   <th className="px-3 py-3 text-left">Product</th>
                   <th className="px-3 py-3 text-left">VUs/Iter</th>
                   <th className="px-3 py-3 text-left">Status</th>
@@ -139,7 +141,8 @@ export function RunList({ onSelect, onCompare }: Props) {
                       />
                     </td>
                     <td className="px-3 py-3 font-mono text-xs text-slate-400">{run.id.slice(0, 8)}…</td>
-                    <td className="px-3 py-3 capitalize text-slate-300">{run.testType}</td>
+                    <td className="px-3 py-3 font-mono text-xs text-slate-300">{run.strategy}</td>
+                    <td className="px-3 py-3"><VerdictBadge verdict={run.verdict} /></td>
                     <td className="px-3 py-3 text-slate-300">#{run.productId}</td>
                     <td className="px-3 py-3 text-slate-400">{run.vus} / {run.iterations}</td>
                     <td className="px-3 py-3"><StatusBadge status={run.status} /></td>

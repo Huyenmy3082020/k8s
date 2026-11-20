@@ -1,4 +1,5 @@
 import {
+  type Relation,
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -21,7 +22,7 @@ export class PerformanceTestMetric {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'testRunId' })
-  testRun: PerformanceTestRun;
+  testRun: Relation<PerformanceTestRun>;
 
   /** Unix epoch seconds — the start of this 1-second bucket */
   @Column({ type: 'bigint' })

@@ -1,19 +1,20 @@
 import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ConflictException,
+	Injectable,
+	Logger,
+	NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as os from 'os';
+import * as path from 'path';
+import { DataSource, Repository } from 'typeorm';
 import { fileURLToPath } from 'url';
-import { PerformanceTestRun } from './entities/performance-test-run.entity.js';
-import { PerformanceTestMetric } from './entities/performance-test-metric.entity.js';
+import { RedisStockService } from '../redis/redis-stock.service.js';
+import { RequestLogsService } from '../request-logs/request-logs.service.js';
 import { PerformanceTestError } from './entities/performance-test-error.entity.js';
+import { PerformanceTestMetric } from './entities/performance-test-metric.entity.js';
+import { PerformanceTestRun } from './entities/performance-test-run.entity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,8 @@ export class K6RunnerService {
     @InjectRepository(PerformanceTestError)
     private readonly errorRepo: Repository<PerformanceTestError>,
     private readonly dataSource: DataSource,
+    private readonly requestLogs: RequestLogsService,
+    private readonly redisStock: RedisStockService,
   ) {}
 
   // ─── Public API ────────────────────────────────────────────────────────────
@@ -109,6 +112,9 @@ export class K6RunnerService {
       // 1. Snapshot initial stock before anything changes
       const initialStock = await this.getProductStock(testRun.productId);
       await this.runRepo.update(testRun.id, { initialStock });
+      if (testRun.strategy === 'redis' && initialStock != null) {
+        await this.redisStock.seed(testRun.productId, initialStock);
+      }
 
       // 2. Write k6 script from template
       this.writeK6Script(testRun, scriptPath, summaryJsonPath);
@@ -164,6 +170,8 @@ export class K6RunnerService {
       .replace(/__VUS__/g, String(testRun.vus))
       .replace(/__ITERATIONS__/g, String(testRun.iterations))
       .replace(/__MAX_DURATION__/g, testRun.maxDuration)
+      .replace(/__STRATEGY__/g, testRun.strategy)
+      .replace(/__TEST_RUN_ID__/g, testRun.id)
       .replace(/__SUMMARY_OUTPUT_PATH__/g, escaped);
 
     fs.writeFileSync(scriptPath, template, 'utf8');
@@ -255,18 +263,45 @@ export class K6RunnerService {
       await this.persistTimeBuckets(testRun.id, timeBuckets);
     }
 
-    // 4. Collect inventory reconciliation
+    // 4. Collect inventory reconciliation (orders are attributed to this run only)
+    await this.requestLogs.flush();
     const finalStock = await this.getProductStock(testRun.productId);
-    const successfulOrderCount = await this.getSuccessfulOrderCount(testRun.productId);
+    const successfulOrderCount = await this.getSuccessfulOrderCount(testRun.id);
     const initialStock = dbRecord?.initialStock ?? 0;
+    const stockDecrease = finalStock != null ? initialStock - finalStock : null;
+    /** Orders created that the stock counter never accounted for (lost updates) */
     const inventoryMismatch =
-      agg !== null &&
-      successfulOrderCount !== null &&
-      agg.successfulRequests !== successfulOrderCount;
-    const oversoldQuantity =
-      initialStock != null && finalStock != null
-        ? Math.max(0, initialStock - finalStock - successfulOrderCount)
-        : null;
+      stockDecrease !== null && stockDecrease !== successfulOrderCount;
+    /** Units sold beyond what was available */
+    const oversoldQuantity = Math.max(0, successfulOrderCount - initialStock);
+    const duplicateReads = await this.requestLogs.duplicateReads(testRun.id);
+    const duplicateReadCount = duplicateReads.reduce((n, r) => n + r.count, 0);
+
+    const verdictReasons: string[] = [];
+    if (oversoldQuantity > 0)
+      verdictReasons.push(
+        `Oversell: bán ${successfulOrderCount} đơn trong khi tồn kho ban đầu chỉ có ${initialStock} (vượt ${oversoldQuantity}).`,
+      );
+    if (inventoryMismatch)
+      verdictReasons.push(
+        `Lost update: tồn kho giảm ${stockDecrease} nhưng có ${successfulOrderCount} đơn thành công.`,
+      );
+    if (finalStock != null && finalStock < 0)
+      verdictReasons.push(`Tồn kho âm: ${finalStock}.`);
+    if (duplicateReadCount > 0)
+      verdictReasons.push(
+        `Race: ${duplicateReadCount} request thành công đã đọc trùng giá trị stock (${duplicateReads.length} giá trị bị đọc trùng).`,
+      );
+    if (testRun.strategy === 'redis') {
+      const redisStock = await this.redisStock.get(testRun.productId);
+      if (redisStock !== finalStock)
+        verdictReasons.push(
+          `Redis và Postgres lệch nhau: Redis stock = ${redisStock}, DB stock = ${finalStock}.`,
+        );
+    }
+    if (agg && agg.unexpectedRequests > 0)
+      verdictReasons.push(`${agg.unexpectedRequests} request lỗi ngoài dự kiến (5xx / timeout).`);
+    const verdict: 'PASS' | 'FAIL' = verdictReasons.length === 0 ? 'PASS' : 'FAIL';
 
     // 5. Persist errors from JSONL
     const errors = this.extractErrors(metricsJsonlPath, testRun.id);
@@ -289,6 +324,7 @@ export class K6RunnerService {
             successfulRequests: agg.successfulRequests,
             outOfStockRequests: agg.outOfStockRequests,
             unexpectedRequests: agg.unexpectedRequests,
+            conflictRequests: agg.conflictRequests,
             successRate: agg.successRate,
             errorRate: agg.errorRate,
             avgResponseTime: agg.avgResponseTime,
@@ -304,6 +340,9 @@ export class K6RunnerService {
       successfulOrderCount,
       inventoryMismatch,
       oversoldQuantity,
+      duplicateReadCount,
+      verdict,
+      verdictReasons,
       k6Summary: summary as Record<string, unknown> | null,
     });
     await this.runRepo.save(existing);
@@ -346,6 +385,7 @@ export class K6RunnerService {
     const successfulRequests = Math.round(getVal('buy_success', 'count') ?? 0);
     const outOfStockRequests = Math.round(getVal('buy_out_of_stock', 'count') ?? 0);
     const unexpectedRequests = Math.round(getVal('buy_unexpected', 'count') ?? 0);
+    const conflictRequests = Math.round(getVal('buy_conflict', 'count') ?? 0);
     const successRate =
       totalRequests > 0
         ? parseFloat(((successfulRequests / totalRequests) * 100).toFixed(2))
@@ -368,6 +408,7 @@ export class K6RunnerService {
       successfulRequests,
       outOfStockRequests,
       unexpectedRequests,
+      conflictRequests,
       successRate,
       errorRate,
       avgResponseTime,
@@ -552,11 +593,11 @@ export class K6RunnerService {
     }
   }
 
-  private async getSuccessfulOrderCount(productId: number): Promise<number> {
+  private async getSuccessfulOrderCount(testRunId: string): Promise<number> {
     try {
       const rows = await this.dataSource.query(
-        `SELECT COUNT(*) AS cnt FROM orders WHERE "productId" = $1 AND status = 'SUCCESS'`,
-        [productId],
+        `SELECT COUNT(*) AS cnt FROM orders WHERE "testRunId" = $1 AND status = 'SUCCESS'`,
+        [testRunId],
       ) as { cnt: string }[];
       return parseInt(rows[0]?.cnt ?? '0', 10);
     } catch {

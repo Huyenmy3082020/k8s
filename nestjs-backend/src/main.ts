@@ -5,9 +5,9 @@ import { AppModule } from './app.module.js';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Allow requests from both React dev servers
+  // Allow requests from the React dev servers on any localhost port (Vite picks the next free one)
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:5174'],
+    origin: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Accept'],
   });
@@ -21,6 +21,9 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(process.env.PORT ?? 3000);
+  // Larger accept backlog: k6 opens ~1000 connections in the first second and
+  // Node's default backlog (511) drops the overflow, showing up as HTTP 0 errors.
+  // '::' = dual-stack, so both localhost (::1) and 127.0.0.1 still work.
+  await app.listen(process.env.PORT ?? 3000, '::', 4096 as never);
 }
 await bootstrap();

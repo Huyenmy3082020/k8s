@@ -1,4 +1,5 @@
 import {
+  type Relation,
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -27,7 +28,7 @@ export class PerformanceTestError {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'testRunId' })
-  testRun: PerformanceTestRun;
+  testRun: Relation<PerformanceTestRun>;
 
   /** Unix epoch ms */
   @Column({ type: 'bigint' })

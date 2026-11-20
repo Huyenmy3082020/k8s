@@ -1,4 +1,5 @@
 import {
+  type Relation,
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -35,6 +36,14 @@ export class PerformanceTestRun {
 
   @Column({ type: 'varchar', length: 500 })
   targetUrl: string;
+
+  /** Classic test case being exercised, e.g. 'oversell' */
+  @Column({ type: 'varchar', length: 40, default: 'oversell' })
+  scenario: string;
+
+  /** Implementation under test, e.g. 'no-lock' | 'pessimistic' | 'optimistic' | 'atomic' */
+  @Column({ type: 'varchar', length: 40, default: 'pessimistic' })
+  strategy: string;
 
   @Column({ type: 'int' })
   vus: number;
@@ -118,6 +127,20 @@ export class PerformanceTestRun {
   @Column({ type: 'int', nullable: true })
   oversoldQuantity: number | null;
 
+  @Column({ type: 'int', nullable: true })
+  conflictRequests: number | null;
+
+  /** Successful requests that observed a stock value another success also observed */
+  @Column({ type: 'int', nullable: true })
+  duplicateReadCount: number | null;
+
+  /** PASS = data stayed consistent, FAIL = anomaly detected */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  verdict: 'PASS' | 'FAIL' | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  verdictReasons: string[] | null;
+
   /** Raw k6 JSON summary stored for debugging */
   @Column({ type: 'jsonb', nullable: true })
   k6Summary: Record<string, unknown> | null;
@@ -133,8 +156,8 @@ export class PerformanceTestRun {
   updatedAt: Date;
 
   @OneToMany(() => PerformanceTestMetric, (m) => m.testRun, { cascade: true })
-  metrics: PerformanceTestMetric[];
+  metrics: Relation<PerformanceTestMetric[]>;
 
   @OneToMany(() => PerformanceTestError, (e) => e.testRun, { cascade: true })
-  errors: PerformanceTestError[];
+  errors: Relation<PerformanceTestError[]>;
 }

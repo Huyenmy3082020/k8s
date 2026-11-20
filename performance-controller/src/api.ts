@@ -7,11 +7,25 @@ export const api = axios.create({
 
 export type TestStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped'
 export type TestType = 'concurrent' | 'stress' | 'spike' | 'load'
+export type Strategy = 'no-lock' | 'pessimistic' | 'optimistic' | 'atomic' | 'redis'
+export const STRATEGIES: { key: Strategy; label: string; correct: boolean }[] = [
+  { key: 'no-lock', label: 'No lock (lỗi)', correct: false },
+  { key: 'pessimistic', label: 'Pessimistic (FOR UPDATE)', correct: true },
+  { key: 'optimistic', label: 'Optimistic (version)', correct: true },
+  { key: 'atomic', label: 'Atomic UPDATE ... WHERE stock > 0', correct: true },
+  { key: 'redis', label: 'Redis counter (Lua DECR)', correct: true },
+]
 
 export interface TestRun {
   id: string
   productId: number
   testType: TestType
+  scenario: string
+  strategy: Strategy
+  verdict: 'PASS' | 'FAIL' | null
+  verdictReasons: string[] | null
+  duplicateReadCount: number | null
+  conflictRequests: number | null
   targetUrl: string
   vus: number
   iterations: number
@@ -39,6 +53,7 @@ export interface TestRun {
 export interface CreateTestPayload {
   productId: number
   testType: TestType
+  strategy: Strategy
   targetUrl: string
   vus: number
   iterations: number

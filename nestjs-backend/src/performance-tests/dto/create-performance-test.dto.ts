@@ -1,4 +1,6 @@
 import { IsInt, IsString, IsUrl, IsIn, Min, Max, Matches, IsOptional } from 'class-validator';
+import { BUY_STRATEGIES } from '../../orders/buy-strategies.js';
+import type { BuyStrategy } from '../../orders/buy-strategies.js';
 import type { TestType } from '../entities/performance-test-run.entity.js';
 
 const TEST_TYPES: TestType[] = ['concurrent', 'stress', 'spike', 'load'];
@@ -14,6 +16,10 @@ export class CreatePerformanceTestDto {
   @IsIn(TEST_TYPES)
   @IsOptional()
   testType?: TestType;
+
+  @IsIn(BUY_STRATEGIES)
+  @IsOptional()
+  strategy?: BuyStrategy;
 
   @IsUrl({ require_tld: false })
   targetUrl: string;

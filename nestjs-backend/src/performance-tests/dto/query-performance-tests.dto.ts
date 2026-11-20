@@ -42,6 +42,14 @@ export class QueryPerformanceTestsDto {
   productId?: number;
 
   @IsOptional()
+  @IsString()
+  strategy?: string;
+
+  @IsOptional()
+  @IsIn(['PASS', 'FAIL'])
+  verdict?: 'PASS' | 'FAIL';
+
+  @IsOptional()
   @IsDateString()
   dateFrom?: string;
 

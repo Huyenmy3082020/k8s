@@ -17,6 +17,7 @@ import { PerformanceTestRun } from './entities/performance-test-run.entity.js';
 import { PerformanceTestMetric } from './entities/performance-test-metric.entity.js';
 import { PerformanceTestError } from './entities/performance-test-error.entity.js';
 import { K6RunnerService } from './k6-runner.service.js';
+import { RequestLogsService } from '../request-logs/request-logs.service.js';
 import { CreatePerformanceTestDto } from './dto/create-performance-test.dto.js';
 import { QueryPerformanceTestsDto } from './dto/query-performance-tests.dto.js';
 
@@ -35,6 +36,7 @@ export class PerformanceTestsService {
     @InjectRepository(PerformanceTestError)
     private readonly errorRepo: Repository<PerformanceTestError>,
     private readonly k6Runner: K6RunnerService,
+    private readonly requestLogs: RequestLogsService,
   ) {}
 
   // ─── Create ────────────────────────────────────────────────────────────────
@@ -65,6 +67,8 @@ export class PerformanceTestsService {
     const testRun = this.runRepo.create({
       productId: dto.productId,
       testType: dto.testType ?? 'concurrent',
+      scenario: 'oversell',
+      strategy: dto.strategy ?? 'pessimistic',
       targetUrl: dto.targetUrl,
       vus: dto.vus,
       iterations: dto.iterations,
@@ -104,6 +108,8 @@ export class PerformanceTestsService {
 
     if (query.status) where.status = query.status;
     if (query.productId) where.productId = query.productId;
+    if (query.strategy) where.strategy = query.strategy;
+    if (query.verdict) where.verdict = query.verdict;
 
     if (query.dateFrom && query.dateTo) {
       where.createdAt = Between(
@@ -164,6 +170,25 @@ export class PerformanceTestsService {
     return { testRun, errors, total };
   }
 
+  // ─── Request logs ──────────────────────────────────────────────────────────
+
+  async getRequestLogs(
+    id: string,
+    opts: { status?: string; page: number; limit: number },
+  ) {
+    await this.getTest(id);
+    return this.requestLogs.findByRun(id, opts);
+  }
+
+  async getRequestLogAnalysis(id: string) {
+    await this.getTest(id);
+    const [summary, duplicateReads] = await Promise.all([
+      this.requestLogs.summary(id),
+      this.requestLogs.duplicateReads(id),
+    ]);
+    return { summary, duplicateReads };
+  }
+
   // ─── Stop ──────────────────────────────────────────────────────────────────
 
   async stopTest(id: string): Promise<{ message: string }> {
@@ -196,7 +221,8 @@ export class PerformanceTestsService {
       );
     }
 
-    // Cascades will remove metrics and errors
+    // Cascades will remove metrics and errors; request logs are not FK-linked
+    await this.requestLogs.deleteByRun(id);
     await this.runRepo.delete(id);
     return { message: `Test run ${id} deleted.` };
   }

@@ -7,6 +7,8 @@ import {
   type CreateTestPayload,
   type TestRun,
   type TestType,
+  type Strategy,
+  STRATEGIES,
 } from './api.ts'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -20,9 +22,10 @@ const STATUS_COLOR: Record<string, string> = {
 const DEFAULT_FORM: CreateTestPayload = {
   productId: 1,
   testType: 'concurrent',
-  targetUrl: 'http://localhost:3000/orders',
-  vus: 10,
-  iterations: 100,
+  strategy: 'no-lock',
+  targetUrl: 'http://localhost:3000/orders/buy',
+  vus: 200,
+  iterations: 1000,
   maxDuration: '30s',
   initialStock: 50,
 }
@@ -189,6 +192,20 @@ export default function App() {
                 </select>
               </label>
 
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs text-slate-400 uppercase tracking-wide">Chiến lược (Strategy)</span>
+                <select
+                  name="strategy" value={form.strategy} onChange={handleChange}
+                  className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-violet-500 transition-colors"
+                >
+                  {STRATEGIES.map(st => (
+                    <option key={st.key} value={st.key as Strategy}>
+                      {st.correct ? '✅' : '❌'} {st.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <label className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-1">
                 <span className="text-xs text-slate-400 uppercase tracking-wide">Target URL</span>
                 <input
@@ -265,7 +282,8 @@ export default function App() {
                 <thead>
                   <tr className="text-xs text-slate-400 uppercase tracking-wide border-b border-slate-800">
                     <th className="text-left pb-3 pr-4">ID</th>
-                    <th className="text-left pb-3 pr-4">Type</th>
+                    <th className="text-left pb-3 pr-4">Strategy</th>
+                    <th className="text-left pb-3 pr-4">Verdict</th>
                     <th className="text-left pb-3 pr-4">VUs/Iter</th>
                     <th className="text-left pb-3 pr-4">Status</th>
                     <th className="text-right pb-3 pr-4">Success%</th>
@@ -280,7 +298,12 @@ export default function App() {
                       <td className="py-3 pr-4 font-mono text-xs text-slate-400">
                         {run.id.slice(0, 8)}…
                       </td>
-                      <td className="py-3 pr-4 capitalize">{run.testType}</td>
+                      <td className="py-3 pr-4 font-mono text-xs">{run.strategy}</td>
+                      <td className="py-3 pr-4">
+                        {run.verdict
+                          ? <span className={`text-xs px-2 py-0.5 rounded-full border ${run.verdict === 'PASS' ? 'bg-green-500/20 text-green-300 border-green-500/30' : 'bg-red-500/20 text-red-300 border-red-500/30'}`}>{run.verdict}</span>
+                          : '—'}
+                      </td>
                       <td className="py-3 pr-4 text-slate-400">
                         {run.vus} / {run.iterations}
                       </td>

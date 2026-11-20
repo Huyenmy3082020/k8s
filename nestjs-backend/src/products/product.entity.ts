@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
-import { VersionColumn } from 'typeorm/browser';
+import { VersionColumn } from 'typeorm';
 
 @Entity('products')
 export class Product {

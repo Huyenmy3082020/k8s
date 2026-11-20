@@ -11,20 +11,25 @@
  *   __VUS__
  *   __ITERATIONS__
  *   __MAX_DURATION__
+ *   __STRATEGY__
+ *   __TEST_RUN_ID__
  */
 import http from 'k6/http';
-import { check } from 'k6';
+import { check, sleep } from 'k6';
 import { Counter, Trend, Gauge } from 'k6/metrics';
 
 const buySuccess    = new Counter('buy_success');
 const buyOutOfStock = new Counter('buy_out_of_stock');
 const buyUnexpected = new Counter('buy_unexpected');
+const buyConflict   = new Counter('buy_conflict');
 const responseTime  = new Trend('buy_response_time', true); // percentiles enabled
 const activeVUs     = new Gauge('active_vus');
 
-http.setResponseCallback(http.expectedStatuses(200, 201, 400));
+http.setResponseCallback(http.expectedStatuses(200, 201, 400, 409));
 
 export const options = {
+  // k6 omits p(99) by default — request it explicitly so the dashboard can show it
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   scenarios: {
     concurrent_buy: {
       executor: 'shared-iterations',
@@ -41,11 +46,18 @@ export const options = {
 };
 
 export default function () {
+  // Stagger each VU's first connection at ~200 new connections/s: opening 1000 TCP connections in the
+  // same instant overflows the OS accept queue (Windows caps it at ~200 → "connection refused"),
+  // especially when the server is busy (e.g. the fast redis strategy). Keep-alive reuses it afterwards.
+  if (__ITER === 0) sleep(((__VU - 1) % 1000) * 0.005);
+
   activeVUs.add(1);
 
   const payload = JSON.stringify({
     productId: __PRODUCT_ID__,
     userId: `USER_${__VU}_${__ITER}`,
+    strategy: '__STRATEGY__',
+    testRunId: '__TEST_RUN_ID__',
   });
 
   const response = http.post('__TARGET_URL__', payload, {
@@ -59,6 +71,8 @@ export default function () {
     buySuccess.add(1);
   } else if (response.status === 400) {
     buyOutOfStock.add(1);
+  } else if (response.status === 409) {
+    buyConflict.add(1);
   } else {
     buyUnexpected.add(1);
     // Status and truncated body logged to stderr; captured by runner
@@ -66,7 +80,7 @@ export default function () {
   }
 
   check(response, {
-    'is expected business response': (r) => r.status === 201 || r.status === 400,
+    'is expected business response': (r) => r.status === 201 || r.status === 400 || r.status === 409,
   });
 
   activeVUs.add(-1);

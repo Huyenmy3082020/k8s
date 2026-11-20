@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersModule } from './orders/orders.module.js';
-import { ProductsModule } from './products/products.module.js';
 import { PerformanceTestsModule } from './performance-tests/performance-tests.module.js';
+import { ProductsModule } from './products/products.module.js';
+import { RequestLogsModule } from './request-logs/request-logs.module.js';
+import { RedisModule } from './redis/redis.module.js';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { PerformanceTestsModule } from './performance-tests/performance-tests.mo
       },
     }),
 
+    RequestLogsModule,
+    RedisModule,
     ProductsModule,
     OrdersModule,
     PerformanceTestsModule,

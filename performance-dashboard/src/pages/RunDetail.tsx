@@ -5,6 +5,8 @@ import {
 import { getTest, getMetrics, getErrors, type TestRun, type TestMetric, type TestError } from '../api.ts'
 import { StatusBadge } from '../components/StatusBadge.tsx'
 import { StatCard } from '../components/StatCard.tsx'
+import { VerdictBadge } from '../components/VerdictBadge.tsx'
+import { RequestLogsPanel } from '../components/RequestLogsPanel.tsx'
 
 interface Props {
   id: string
@@ -28,7 +30,7 @@ export function RunDetail({ id, onBack }: Props) {
   const [metrics, setMetrics] = useState<TestMetric[]>([])
   const [errors, setErrors] = useState<TestError[]>([])
   const [errorTotal, setErrorTotal] = useState(0)
-  const [tab, setTab] = useState<'overview' | 'metrics' | 'errors'>('overview')
+  const [tab, setTab] = useState<'overview' | 'logs' | 'metrics' | 'errors'>('overview')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -90,6 +92,7 @@ export function RunDetail({ id, onBack }: Props) {
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-white font-mono">{run.id.slice(0, 13)}…</h2>
           <StatusBadge status={run.status} />
+          <VerdictBadge verdict={run.verdict} />
           {run.inventoryMismatch && (
             <span className="text-xs bg-red-500/20 text-red-300 border border-red-500/30 px-2 py-0.5 rounded-full">
               ⚠️ Inventory Mismatch
@@ -100,6 +103,8 @@ export function RunDetail({ id, onBack }: Props) {
 
       {/* Meta info */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-4 text-sm grid grid-cols-2 md:grid-cols-4 gap-y-3 gap-x-6">
+        <div><span className="text-slate-500">Scenario:</span> <span className="text-slate-200">{run.scenario}</span></div>
+        <div><span className="text-slate-500">Strategy:</span> <span className="text-slate-200 font-mono">{run.strategy}</span></div>
         <div><span className="text-slate-500">Type:</span> <span className="text-slate-200 capitalize">{run.testType}</span></div>
         <div><span className="text-slate-500">Product:</span> <span className="text-slate-200">#{run.productId}</span></div>
         <div><span className="text-slate-500">VUs:</span> <span className="text-slate-200">{run.vus}</span></div>
@@ -116,6 +121,21 @@ export function RunDetail({ id, onBack }: Props) {
           </span>
         </div>
       </div>
+
+      {run.verdict && (
+        <div className={`rounded-lg px-4 py-3 text-sm border ${run.verdict === 'PASS' ? 'bg-green-500/10 border-green-500/30 text-green-300' : 'bg-red-500/10 border-red-500/30 text-red-300'}`}>
+          {run.verdict === 'PASS' ? (
+            <strong>✓ Dữ liệu nhất quán: không oversell, không lost update, không đọc trùng stock.</strong>
+          ) : (
+            <>
+              <strong>✗ Phát hiện bất thường:</strong>
+              <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                {(run.verdictReasons ?? []).map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
 
       {run.errorMessage && (
         <div className="bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg px-4 py-3 text-sm">
@@ -145,11 +165,17 @@ export function RunDetail({ id, onBack }: Props) {
         <StatCard label="Max ms" value={fmt(run.maxResponseTime)} />
         <StatCard label="RPS" value={fmt(run.requestsPerSecond)} />
         <StatCard label="Out of Stock" value={run.outOfStockRequests ?? '—'} />
+        <StatCard label="409 Conflict" value={run.conflictRequests ?? '—'} />
+        <StatCard
+          label="Đọc trùng stock"
+          value={run.duplicateReadCount ?? '—'}
+          highlight={run.duplicateReadCount == null ? 'none' : run.duplicateReadCount > 0 ? 'red' : 'green'}
+        />
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
-        {(['overview', 'metrics', 'errors'] as const).map(t => (
+        {(['overview', 'logs', 'metrics', 'errors'] as const).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -159,7 +185,7 @@ export function RunDetail({ id, onBack }: Props) {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            {t === 'errors' ? `Errors (${errorTotal})` : t === 'metrics' ? `Metrics (${metrics.length})` : 'Overview'}
+            {t === 'errors' ? `Errors (${errorTotal})` : t === 'metrics' ? `Metrics (${metrics.length})` : t === 'logs' ? 'Request Logs' : 'Overview'}
           </button>
         ))}
       </div>
@@ -198,6 +224,8 @@ export function RunDetail({ id, onBack }: Props) {
           </div>
         </div>
       )}
+
+      {tab === 'logs' && <RequestLogsPanel id={run.id} running={run.status === 'running'} />}
 
       {tab === 'metrics' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-6">
